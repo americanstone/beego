@@ -282,6 +282,8 @@ func (t *Tree) addseg(segments []string, route interface{}, wildcards []string, 
 
 // Match router to runObject & params
 func (t *Tree) Match(pattern string, ctx *context.Context) (runObject interface{}) {
+	// fix issue 4961, deal with "./ ../ //"
+	pattern = path.Clean(pattern)
 	if pattern == "" || pattern[0] != '/' {
 		return nil
 	}
@@ -341,9 +343,9 @@ func (t *Tree) match(treePattern string, pattern string, wildcardValues []string
 	if runObject == nil && len(t.fixrouters) > 0 {
 		// Filter the .json .xml .html extension
 		for _, str := range allowSuffixExt {
-			if strings.HasSuffix(seg, str) && strings.HasSuffix(treePattern, seg) {
+			// pattern == "" avoid cases: /aaa.html/aaa.html could access /aaa/:bbb
+			if strings.HasSuffix(seg, str) && pattern == "" {
 				for _, subTree := range t.fixrouters {
-					// strings.HasSuffix(treePattern, seg) avoid cases: /aaa.html/bbb could access /aaa/bbb
 					if subTree.prefix == seg[:len(seg)-len(str)] {
 						runObject = subTree.match(treePattern, pattern, wildcardValues, ctx)
 						if runObject != nil {

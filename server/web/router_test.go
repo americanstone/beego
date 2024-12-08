@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -42,6 +44,14 @@ func (m TestControllerWithInterface) Ping() {
 
 func (m *TestControllerWithInterface) PingPointer() {
 	fmt.Println("pong pointer")
+}
+
+type TestDefineController struct {
+	Controller
+}
+
+func (tc *TestDefineController) List() {
+	tc.Ctx.Output.Body([]byte("i am list"))
 }
 
 type TestController struct {
@@ -354,6 +364,21 @@ func TestAutoPrefix(t *testing.T) {
 	}
 }
 
+func TestAutoPrefixWithDefinedControllerSuffix(t *testing.T) {
+	r, _ := http.NewRequest("GET", "/admin/test/list", nil)
+	w := httptest.NewRecorder()
+
+	config := BeeApp.Cfg
+	config.ControllerSuffix = "DefineController"
+
+	handler := NewControllerRegisterWithCfg(config)
+	handler.AddAutoPrefix("/admin", &TestDefineController{})
+	handler.ServeHTTP(w, r)
+	if w.Body.String() != "i am list" {
+		t.Errorf("TestAutoPrefixWithDefinedControllerSuffix can't run")
+	}
+}
+
 func TestCtrlGet(t *testing.T) {
 	r, _ := http.NewRequest("GET", "/user", nil)
 	w := httptest.NewRecorder()
@@ -516,7 +541,7 @@ func TestParamResetFilter(t *testing.T) {
 	mux.ServeHTTP(rw, r)
 
 	// The two functions, `beegoResetParams` and `beegoHandleResetParams` add
-	// a response header of `Splat`.  The expectation here is that that Header
+	// a response header of `Splat`.  The expectation here is that Header
 	// value should match what the _request's_ router set, not the filter's.
 
 	headers := rw.Result().Header
@@ -1096,4 +1121,33 @@ func TestRouterAddRouterPointerMethodPanicNotImplementInterface(t *testing.T) {
 
 	handler := NewControllerRegister()
 	handler.AddRouterMethod(method, "/user", (*TestControllerWithInterface).PingPointer)
+}
+
+func TestGetAllControllerInfo(t *testing.T) {
+	handler := NewControllerRegister()
+	handler.Add("/level1", &TestController{}, WithRouterMethods(&TestController{}, "get:Get"))
+	handler.Add("/level1/level2", &TestController{}, WithRouterMethods(&TestController{}, "get:Get"))
+	handler.Add("/:name1", &TestController{}, WithRouterMethods(&TestController{}, "post:Post"))
+
+	var actualPatterns []string
+	var actualMethods []string
+	for _, controllerInfo := range handler.GetAllControllerInfo() {
+		actualPatterns = append(actualPatterns, controllerInfo.GetPattern())
+		for _, httpMethod := range controllerInfo.GetMethod() {
+			actualMethods = append(actualMethods, httpMethod)
+		}
+	}
+	sort.Strings(actualPatterns)
+	expectedPatterns := []string{"/level1", "/level1/level2", "/:name1"}
+	sort.Strings(expectedPatterns)
+	if !reflect.DeepEqual(actualPatterns, expectedPatterns) {
+		t.Errorf("ControllerInfo.GetMethod expected %#v, but %#v got", expectedPatterns, actualPatterns)
+	}
+
+	sort.Strings(actualMethods)
+	expectedMethods := []string{"Get", "Get", "Post"}
+	sort.Strings(expectedMethods)
+	if !reflect.DeepEqual(actualMethods, expectedMethods) {
+		t.Errorf("ControllerInfo.GetMethod expected %#v, but %#v got", expectedMethods, actualMethods)
+	}
 }
